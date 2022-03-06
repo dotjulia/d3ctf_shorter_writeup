@@ -191,3 +191,4 @@ I sent my final payload to the challenge server and it worked like a charm. I im
 # Conclusion
 
 This was my second CTF I ever attended and I found this challenge to be pretty fun. I learned a lot about java bytecode and how java serialization works. I would like to thank my teammates who supported me emotionally during this endeavor.
+The source code for my solution can be found under `src/p`.
