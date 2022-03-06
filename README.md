@@ -255,7 +255,7 @@ Generating the payload again it was at around **2500 bytes** which still was too
 
 At this point I found **ProGuard** which could obfuscate and shrink jars for deployment on embedded devices. I gave it a try and gound out that their `shrink` option wouldn't reduce the size of the classes but their `obfuscate` option would. Unfortunately, obfuscating the whole jar wasn't an option as library class names would be changed and that wouldn't work on the not obfuscated challenge server.
 
-Not knowing what to do next I took a look at the bytecode again and stumbled upon something interesting. One of the first strings in the `.class` file was `LocalVariableTable` which suggested some kind of debug information.
+Not knowing what to do next I took a look at the bytecode again and stumbled upon something interesting. One of the first strings in the `.class` file was `LineNumberTable` which suggested some kind of debug information.
 
 ![smaller foo](img/smaller_foo.png)
 
